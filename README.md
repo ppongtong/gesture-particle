@@ -6,6 +6,8 @@ An interactive 3D particle system controlled entirely by hand gestures — no mo
 
 ## Demo
 
+🔗 **[ppongtong.github.io/gesture-particle](https://ppongtong.github.io/gesture-particle)**
+
 Open your webcam, make a gesture, watch the magic happen.
 
 | Gesture               | Formation | Feel                                   |
