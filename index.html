@@ -1,0 +1,685 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Gesture Particles</title>
+  <style>
+    *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+
+    html, body {
+      width: 100%; height: 100%;
+      background: #000;
+      overflow: hidden;
+      font-family: 'Courier New', monospace;
+    }
+
+    #main-canvas {
+      position: fixed;
+      inset: 0;
+      display: block;
+    }
+
+    #video { display: none; }
+
+    #cam-overlay {
+      position: fixed;
+      bottom: 20px; right: 20px;
+      width: 200px; height: 150px;
+      border-radius: 10px;
+      overflow: hidden;
+      border: 1px solid rgba(255,255,255,0.12);
+      z-index: 10;
+      background: #000;
+    }
+
+    #cam-canvas {
+      width: 100%; height: 100%;
+      display: block;
+      transform: scaleX(-1);
+    }
+
+    #gesture-label {
+      position: fixed;
+      top: 28px; left: 50%;
+      transform: translateX(-50%);
+      color: rgba(255,255,255,0.55);
+      font-size: 11px;
+      letter-spacing: 6px;
+      text-transform: uppercase;
+      z-index: 10;
+      transition: color 0.4s, opacity 0.4s;
+      pointer-events: none;
+      white-space: nowrap;
+    }
+
+    #status {
+      position: fixed;
+      top: 50%; left: 50%;
+      transform: translate(-50%, -50%);
+      color: rgba(255,255,255,0.5);
+      font-size: 13px;
+      letter-spacing: 5px;
+      text-transform: uppercase;
+      z-index: 20;
+      pointer-events: none;
+      transition: opacity 0.6s;
+    }
+
+    #guide {
+      position: fixed;
+      bottom: 20px; left: 20px;
+      color: rgba(255,255,255,0.22);
+      font-size: 9.5px;
+      line-height: 2;
+      letter-spacing: 1.5px;
+      z-index: 10;
+      user-select: none;
+    }
+
+    #guide span {
+      display: inline-block;
+      width: 5px; height: 5px;
+      border-radius: 50%;
+      margin-right: 7px;
+      vertical-align: middle;
+      background: currentColor;
+    }
+  </style>
+</head>
+<body>
+
+<canvas id="main-canvas"></canvas>
+<video id="video" playsinline muted></video>
+
+<div id="cam-overlay">
+  <canvas id="cam-canvas"></canvas>
+</div>
+
+<div id="gesture-label">·</div>
+<div id="status">INITIALIZING</div>
+
+<div id="guide">
+  <div><span></span>FIST &nbsp;&nbsp;&nbsp;&nbsp;→&nbsp; SPHERE</div>
+  <div><span></span>OPEN &nbsp;&nbsp;&nbsp;&nbsp;→&nbsp; SCATTER</div>
+  <div><span></span>POINT &nbsp;&nbsp;&nbsp;→&nbsp; VORTEX</div>
+  <div><span></span>PEACE &nbsp;&nbsp;&nbsp;→&nbsp; WAVE</div>
+  <div><span></span>PINCH &nbsp;&nbsp;&nbsp;→&nbsp; IMPLODE</div>
+  <div><span></span>SWIPE &nbsp;&nbsp;&nbsp;→&nbsp; PUSH</div>
+</div>
+
+<!-- MediaPipe globals (must load before module) -->
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils@0.3.1640029074/camera_utils.js" crossorigin="anonymous"></script>
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils@0.3.1620248257/drawing_utils.js" crossorigin="anonymous"></script>
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands@0.4.1646424915/hands.js" crossorigin="anonymous"></script>
+
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js"
+  }
+}
+</script>
+
+<script type="module">
+import * as THREE from 'three';
+
+// ─── Constants ────────────────────────────────────────────────────────────────
+
+const N          = 10_000;
+const SPRING_K   = 0.052;
+const DAMPING    = 0.87;
+const NOISE      = 0.004;
+const CAM_Z      = 80;
+const SPHERE_R   = 20;
+const SCATTER_R  = 65;
+const VORTEX_H   = 65;
+const WAVE_SIZE  = 50;
+const GOLDEN     = (1 + Math.sqrt(5)) / 2;
+
+// World-space extent visible at z=0 with FOV=60, aspect 16/9, cam at z=80:
+// half-height ≈ 46, half-width ≈ 82. Map hand to ±40 / ±27.
+const HAND_SCALE_X = 82;
+const HAND_SCALE_Y = 55;
+
+// ─── Three.js ────────────────────────────────────────────────────────────────
+
+const mainCanvas = document.getElementById('main-canvas');
+const renderer   = new THREE.WebGLRenderer({ canvas: mainCanvas, antialias: false });
+renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+renderer.setSize(window.innerWidth, window.innerHeight);
+renderer.setClearColor(0x000005, 1);
+
+const scene  = new THREE.Scene();
+const camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 1000);
+camera.position.set(0, 0, CAM_Z);
+camera.lookAt(0, 0, 0);
+
+window.addEventListener('resize', () => {
+  renderer.setSize(window.innerWidth, window.innerHeight);
+  camera.aspect = window.innerWidth / window.innerHeight;
+  camera.updateProjectionMatrix();
+});
+
+// ─── Particle Buffers ─────────────────────────────────────────────────────────
+
+const pos  = new Float32Array(N * 3);
+const vel  = new Float32Array(N * 3);
+const tgt  = new Float32Array(N * 3);
+const col  = new Float32Array(N * 3);
+const sz   = new Float32Array(N);
+const hues = new Float32Array(N);          // per-particle hue variety 0..1
+
+// Pre-built sphere target offsets (centred at origin, reused per mode)
+const sphereOff = new Float32Array(N * 3);
+
+// Initialise in a loose sphere cloud
+for (let i = 0; i < N; i++) {
+  const i3 = i * 3;
+  const lat = Math.acos(1 - 2 * (i + 0.5) / N);
+  const lon = 2 * Math.PI * i / GOLDEN;
+  const r   = (1.5 + Math.random() * 1.5) * SPHERE_R;
+  pos[i3]   = r * Math.sin(lat) * Math.cos(lon);
+  pos[i3+1] = r * Math.cos(lat);
+  pos[i3+2] = r * Math.sin(lat) * Math.sin(lon);
+
+  vel[i3]   = (Math.random() - 0.5) * 0.4;
+  vel[i3+1] = (Math.random() - 0.5) * 0.4;
+  vel[i3+2] = (Math.random() - 0.5) * 0.4;
+
+  hues[i] = Math.random();
+  sz[i]   = 1.8 + Math.random() * 3.2;
+
+  col[i3]   = 0.1;
+  col[i3+1] = 0.3;
+  col[i3+2] = 1.0;
+
+  // Fibonacci sphere offsets
+  const sLat = Math.acos(1 - 2 * (i + 0.5) / N);
+  const sLon = 2 * Math.PI * i / GOLDEN;
+  const sR   = SPHERE_R * (0.88 + Math.random() * 0.24);
+  sphereOff[i3]   = sR * Math.sin(sLat) * Math.cos(sLon);
+  sphereOff[i3+1] = sR * Math.cos(sLat);
+  sphereOff[i3+2] = sR * Math.sin(sLat) * Math.sin(sLon);
+}
+tgt.set(pos);
+
+// ─── Three.js Geometry & Shader ───────────────────────────────────────────────
+
+const geo = new THREE.BufferGeometry();
+geo.setAttribute('position', new THREE.BufferAttribute(pos, 3).setUsage(THREE.DynamicDrawUsage));
+geo.setAttribute('aColor',   new THREE.BufferAttribute(col, 3).setUsage(THREE.DynamicDrawUsage));
+geo.setAttribute('aSize',    new THREE.BufferAttribute(sz,  1));
+
+const vertexShader = /* glsl */ `
+  attribute vec3  aColor;
+  attribute float aSize;
+  varying   vec3  vColor;
+
+  void main() {
+    vColor = aColor;
+    vec4 mv = modelViewMatrix * vec4(position, 1.0);
+    gl_PointSize = aSize * (320.0 / -mv.z);
+    gl_Position  = projectionMatrix * mv;
+  }
+`;
+
+const fragmentShader = /* glsl */ `
+  varying vec3 vColor;
+
+  void main() {
+    vec2  uv   = gl_PointCoord - 0.5;
+    float dist = length(uv);
+    if (dist > 0.5) discard;
+
+    float core  = 1.0 - smoothstep(0.0, 0.18, dist);
+    float halo  = 1.0 - smoothstep(0.0, 0.50, dist);
+    float alpha = core * 0.85 + halo * 0.30;
+
+    vec3 bright = vColor * (1.0 + core * 2.2);
+    gl_FragColor = vec4(bright, alpha);
+  }
+`;
+
+const mat = new THREE.ShaderMaterial({
+  vertexShader,
+  fragmentShader,
+  blending:     THREE.AdditiveBlending,
+  depthWrite:   false,
+  transparent:  true,
+});
+
+const points = new THREE.Points(geo, mat);
+scene.add(points);
+
+// ─── State ────────────────────────────────────────────────────────────────────
+
+let mode         = 'idle';
+let handX        = 0;
+let handY        = 0;
+let handVisible  = false;
+let time         = 0;
+let swipeX       = 0;   // decaying swipe impulse
+let swipeY       = 0;
+let prevGesture  = 'none';
+let stabCount    = 0;
+const STAB       = 4;   // frames before gesture locks in
+
+// Swipe velocity tracking
+const posHistory = [];
+const HIST_LEN   = 5;
+
+// Colour palette (HSL normalised 0-1), lerped each frame
+let palH = 0.62, palS = 0.8, palL = 0.60;
+let tgtH = 0.62, tgtS = 0.8, tgtL = 0.60;
+
+// Scatter targets are random — precompute when mode changes
+const scatterTgt = new Float32Array(N * 3);
+
+// ─── Colour Helpers ───────────────────────────────────────────────────────────
+
+function hsl2rgb(h, s, l) {
+  const a = s * Math.min(l, 1 - l);
+  const f = n => { const k = (n + h * 12) % 12; return l - a * Math.max(Math.min(k - 3, 9 - k, 1), -1); };
+  return [f(0), f(8), f(4)];
+}
+
+// Lerp colour targets toward tgt each frame
+let colH = new Float32Array(N);  // per-particle colour lerp factor
+colH.fill(0);
+
+function updateColors() {
+  const spd = 0.025;
+  palH += (tgtH - palH) * spd * 4;
+  palS += (tgtS - palS) * spd;
+  palL += (tgtL - palL) * spd;
+
+  for (let i = 0; i < N; i++) {
+    const i3 = i * 3;
+    const h = ((palH + (hues[i] - 0.5) * 0.14) % 1 + 1) % 1;
+    const [r, g, b] = hsl2rgb(h, palS, palL * (0.6 + sz[i] / 12));
+    col[i3]   = r;
+    col[i3+1] = g;
+    col[i3+2] = b;
+  }
+  geo.attributes.aColor.needsUpdate = true;
+}
+
+// ─── Formation Target Setters ─────────────────────────────────────────────────
+
+function setMode(newMode) {
+  if (newMode === mode) return;
+  mode = newMode;
+
+  switch (mode) {
+    case 'sphere':  tgtH = 0.52; tgtS = 1.0; tgtL = 0.65; break;  // cyan
+    case 'scatter': tgtH = 0.09; tgtS = 1.0; tgtL = 0.65; break;  // gold-orange
+    case 'vortex':  tgtH = 0.76; tgtS = 1.0; tgtL = 0.62; break;  // violet
+    case 'wave':    tgtH = 0.43; tgtS = 1.0; tgtL = 0.60; break;  // teal
+    case 'implode': tgtH = 0.94; tgtS = 1.0; tgtL = 0.68; break;  // magenta
+    case 'follow':  tgtH = 0.56; tgtS = 0.9; tgtL = 0.65; break;  // blue-cyan
+    default:        tgtH = 0.62; tgtS = 0.7; tgtL = 0.55; break;  // deep blue
+  }
+
+  if (mode === 'scatter') {
+    for (let i = 0; i < N; i++) {
+      const i3 = i * 3;
+      const r  = SCATTER_R * (0.3 + Math.random() * 0.7);
+      const th = Math.random() * Math.PI * 2;
+      const ph = Math.acos(2 * Math.random() - 1);
+      scatterTgt[i3]   = r * Math.sin(ph) * Math.cos(th);
+      scatterTgt[i3+1] = r * Math.cos(ph);
+      scatterTgt[i3+2] = r * Math.sin(ph) * Math.sin(th);
+    }
+  }
+}
+
+// Recompute targets every frame (for animated and hand-tracking modes)
+function updateTargets(t) {
+  const cx = handX, cy = handY, cz = 0;
+
+  switch (mode) {
+    case 'idle': {
+      // Slow-rotating dispersed nebula
+      for (let i = 0; i < N; i++) {
+        const i3  = i * 3;
+        const lat = Math.acos(1 - 2 * (i + 0.5) / N);
+        const lon = 2 * Math.PI * i / GOLDEN + t * 0.08;
+        const r   = SPHERE_R * (1.1 + 0.3 * Math.sin(t * 0.4 + hues[i] * 6));
+        tgt[i3]   = r * Math.sin(lat) * Math.cos(lon);
+        tgt[i3+1] = r * Math.cos(lat);
+        tgt[i3+2] = r * Math.sin(lat) * Math.sin(lon);
+      }
+      break;
+    }
+
+    case 'sphere': {
+      for (let i = 0; i < N; i++) {
+        const i3 = i * 3;
+        tgt[i3]   = cx + sphereOff[i3];
+        tgt[i3+1] = cy + sphereOff[i3+1];
+        tgt[i3+2] = cz + sphereOff[i3+2];
+      }
+      break;
+    }
+
+    case 'scatter': {
+      for (let i = 0; i < N; i++) {
+        const i3 = i * 3;
+        tgt[i3]   = scatterTgt[i3];
+        tgt[i3+1] = scatterTgt[i3+1];
+        tgt[i3+2] = scatterTgt[i3+2];
+      }
+      break;
+    }
+
+    case 'vortex': {
+      for (let i = 0; i < N; i++) {
+        const i3   = i * 3;
+        const frac = i / N;
+        const angle = frac * Math.PI * 28 + t * 2.5;
+        const r     = 4 + frac * 22;
+        const h     = (frac - 0.5) * VORTEX_H;
+        tgt[i3]   = cx + r * Math.cos(angle);
+        tgt[i3+1] = cy + h;
+        tgt[i3+2] = cz + r * Math.sin(angle);
+      }
+      break;
+    }
+
+    case 'wave': {
+      const cols = Math.ceil(Math.sqrt(N));
+      for (let i = 0; i < N; i++) {
+        const i3 = i * 3;
+        const ix = i % cols;
+        const iy = Math.floor(i / cols);
+        const x  = (ix / cols - 0.5) * WAVE_SIZE;
+        const z  = (iy / cols - 0.5) * WAVE_SIZE;
+        const y  = Math.sin(x * 0.22 + t * 2.2) * Math.cos(z * 0.22 + t * 1.6) * 12;
+        tgt[i3]   = cx + x;
+        tgt[i3+1] = cy + y;
+        tgt[i3+2] = cz + z;
+      }
+      break;
+    }
+
+    case 'implode': {
+      for (let i = 0; i < N; i++) {
+        const i3 = i * 3;
+        tgt[i3]   = cx + (Math.random() - 0.5) * 0.8;
+        tgt[i3+1] = cy + (Math.random() - 0.5) * 0.8;
+        tgt[i3+2] = cz + (Math.random() - 0.5) * 0.8;
+      }
+      break;
+    }
+
+    case 'follow': {
+      // Loose swirling cloud that follows the hand
+      for (let i = 0; i < N; i++) {
+        const i3    = i * 3;
+        const frac  = i / N;
+        const angle = frac * Math.PI * 40 + t * 1.5;
+        const r     = 2 + frac * 18;
+        const lat   = Math.acos(1 - 2 * (i + 0.5) / N);
+        tgt[i3]   = cx + r * Math.sin(lat) * Math.cos(angle);
+        tgt[i3+1] = cy + r * Math.cos(lat);
+        tgt[i3+2] = cz + r * Math.sin(lat) * Math.sin(angle);
+      }
+      break;
+    }
+  }
+}
+
+// ─── Physics ──────────────────────────────────────────────────────────────────
+
+function stepPhysics() {
+  for (let i = 0; i < N; i++) {
+    const i3 = i * 3;
+
+    const dx = tgt[i3]   - pos[i3];
+    const dy = tgt[i3+1] - pos[i3+1];
+    const dz = tgt[i3+2] - pos[i3+2];
+
+    vel[i3]   += dx * SPRING_K;
+    vel[i3+1] += dy * SPRING_K;
+    vel[i3+2] += dz * SPRING_K;
+
+    // Swipe impulse (varies per particle for organic feel)
+    vel[i3]   += swipeX * (0.7 + hues[i] * 0.6);
+    vel[i3+1] += swipeY * (0.7 + hues[i] * 0.6);
+
+    // Micro-turbulence
+    vel[i3]   += (Math.random() - 0.5) * NOISE;
+    vel[i3+1] += (Math.random() - 0.5) * NOISE;
+    vel[i3+2] += (Math.random() - 0.5) * NOISE;
+
+    vel[i3]   *= DAMPING;
+    vel[i3+1] *= DAMPING;
+    vel[i3+2] *= DAMPING;
+
+    pos[i3]   += vel[i3];
+    pos[i3+1] += vel[i3+1];
+    pos[i3+2] += vel[i3+2];
+  }
+
+  swipeX *= 0.82;
+  swipeY *= 0.82;
+
+  geo.attributes.position.needsUpdate = true;
+}
+
+// ─── Gesture Detection ────────────────────────────────────────────────────────
+
+function isExtended(lm, tip, pip) {
+  return lm[tip].y < lm[pip].y - 0.03;
+}
+
+function detectGesture(lm) {
+  // Pinch: thumb tip close to index tip
+  const tx = lm[4].x - lm[8].x;
+  const ty = lm[4].y - lm[8].y;
+  if (Math.sqrt(tx * tx + ty * ty) < 0.06) return 'pinch';
+
+  const idx  = isExtended(lm, 8,  6);
+  const mid  = isExtended(lm, 12, 10);
+  const ring = isExtended(lm, 16, 14);
+  const pnk  = isExtended(lm, 20, 18);
+  const ext  = [idx, mid, ring, pnk].filter(Boolean).length;
+
+  if (ext === 0)                            return 'fist';
+  if (ext >= 4)                             return 'open';
+  if (idx && !mid && !ring && !pnk)        return 'point';
+  if (idx && mid && !ring && !pnk)         return 'peace';
+  return 'default';
+}
+
+// ─── UI Elements ─────────────────────────────────────────────────────────────
+
+const statusEl  = document.getElementById('status');
+const labelEl   = document.getElementById('gesture-label');
+const camCanvas = document.getElementById('cam-canvas');
+const camCtx    = camCanvas.getContext('2d');
+const videoEl   = document.getElementById('video');
+
+const GESTURE_LABEL = {
+  fist:    'SPHERE',
+  open:    'SCATTER',
+  point:   'VORTEX',
+  peace:   'WAVE',
+  pinch:   'IMPLODE',
+  default: 'FLOW',
+};
+
+const GESTURE_MODE = {
+  fist:    'sphere',
+  open:    'scatter',
+  point:   'vortex',
+  peace:   'wave',
+  pinch:   'implode',
+  default: 'follow',
+};
+
+// ─── MediaPipe Hand Result Handler ────────────────────────────────────────────
+
+function onHandResults(results) {
+  const W = results.image.width;
+  const H = results.image.height;
+  camCanvas.width  = W;
+  camCanvas.height = H;
+
+  camCtx.clearRect(0, 0, W, H);
+
+  // Dim the live feed slightly so skeleton pops
+  camCtx.globalAlpha = 0.75;
+  camCtx.drawImage(results.image, 0, 0);
+  camCtx.globalAlpha = 1.0;
+
+  if (!results.multiHandLandmarks || results.multiHandLandmarks.length === 0) {
+    handVisible = false;
+    setMode('idle');
+    labelEl.textContent = '·';
+    labelEl.style.color = 'rgba(255,255,255,0.4)';
+    return;
+  }
+
+  handVisible = true;
+  statusEl.style.opacity = '0';
+
+  const lm = results.multiHandLandmarks[0];
+
+  // Draw skeleton using MediaPipe drawing utils
+  if (window.drawConnectors && window.drawLandmarks && window.HAND_CONNECTIONS) {
+    drawConnectors(camCtx, lm, HAND_CONNECTIONS, { color: 'rgba(0,200,255,0.8)', lineWidth: 1 });
+    drawLandmarks(camCtx, lm, { color: 'rgba(255,255,255,0.9)', lineWidth: 0.5, radius: 2 });
+  }
+
+  // Palm centre (average of wrist + finger bases)
+  const palmX = (lm[0].x + lm[5].x + lm[9].x + lm[13].x + lm[17].x) / 5;
+  const palmY = (lm[0].y + lm[5].y + lm[9].y + lm[13].y + lm[17].y) / 5;
+
+  // Map to world space. Flip X so mirror matches expectations.
+  const wx = (0.5 - palmX) * HAND_SCALE_X;
+  const wy = (0.5 - palmY) * HAND_SCALE_Y;
+
+  // Smooth hand position
+  handX += (wx - handX) * 0.18;
+  handY += (wy - handY) * 0.18;
+
+  // Track velocity for swipe
+  posHistory.push({ x: wx, y: wy });
+  if (posHistory.length > HIST_LEN) posHistory.shift();
+
+  if (posHistory.length === HIST_LEN) {
+    const vx = posHistory[HIST_LEN - 1].x - posHistory[0].x;
+    const vy = posHistory[HIST_LEN - 1].y - posHistory[0].y;
+    const speed = Math.sqrt(vx * vx + vy * vy);
+
+    if (speed > 6) {
+      swipeX += (vx / speed) * speed * 0.18;
+      swipeY += (vy / speed) * speed * 0.12;
+
+      const dir = Math.abs(vx) > Math.abs(vy)
+        ? (vx > 0 ? '→ PUSH RIGHT' : '← PUSH LEFT')
+        : (vy > 0 ? '↓ PUSH DOWN' : '↑ PUSH UP');
+      labelEl.textContent = dir;
+      labelEl.style.color = 'rgba(255,220,80,0.9)';
+      return;
+    }
+  }
+
+  // Stable gesture detection
+  const g = detectGesture(lm);
+  if (g === prevGesture) {
+    stabCount++;
+  } else {
+    stabCount = 0;
+    prevGesture = g;
+  }
+
+  if (stabCount >= STAB) {
+    setMode(GESTURE_MODE[g] || 'follow');
+    labelEl.textContent = GESTURE_LABEL[g] || '·';
+
+    const hslStr = `hsl(${Math.round(tgtH * 360)}, ${Math.round(tgtS * 100)}%, ${Math.round(tgtL * 100)}%)`;
+    labelEl.style.color = hslStr;
+  }
+}
+
+// ─── MediaPipe Init ───────────────────────────────────────────────────────────
+
+async function initMediaPipe() {
+  statusEl.textContent  = 'REQUESTING CAMERA';
+  statusEl.style.opacity = '1';
+
+  try {
+    await navigator.mediaDevices.getUserMedia({ video: { width: 640, height: 480, facingMode: 'user' } });
+  } catch (err) {
+    statusEl.textContent = 'CAMERA DENIED — RELOAD & ALLOW ACCESS';
+    return;
+  }
+
+  statusEl.textContent = 'LOADING MODEL';
+
+  const hands = new Hands({
+    locateFile: f => `https://cdn.jsdelivr.net/npm/@mediapipe/hands@0.4.1646424915/${f}`,
+  });
+
+  hands.setOptions({
+    maxNumHands:            1,
+    modelComplexity:        1,
+    minDetectionConfidence: 0.75,
+    minTrackingConfidence:  0.55,
+  });
+
+  hands.onResults(onHandResults);
+
+  const mpCam = new Camera(videoEl, {
+    onFrame: async () => { await hands.send({ image: videoEl }); },
+    width: 640, height: 480,
+  });
+
+  mpCam.start().then(() => {
+    statusEl.textContent   = 'SHOW YOUR HAND';
+    statusEl.style.opacity = '1';
+    setTimeout(() => { statusEl.style.opacity = '0'; }, 3500);
+  }).catch(() => {
+    statusEl.textContent = 'CAMERA ERROR — RELOAD';
+  });
+}
+
+// ─── Animation Loop ───────────────────────────────────────────────────────────
+
+// Slight camera drift for depth
+let camAngle = 0;
+
+function animate() {
+  requestAnimationFrame(animate);
+
+  time      += 0.016;
+  camAngle  += 0.0004;
+
+  // Subtle camera bob
+  camera.position.x = Math.sin(camAngle) * 3;
+  camera.position.y = Math.cos(camAngle * 0.7) * 1.5;
+  camera.lookAt(0, 0, 0);
+
+  // If no hand, centre slowly
+  if (!handVisible) {
+    handX *= 0.97;
+    handY *= 0.97;
+  }
+
+  updateTargets(time);
+  stepPhysics();
+  updateColors();
+
+  renderer.render(scene, camera);
+}
+
+// ─── Boot ─────────────────────────────────────────────────────────────────────
+
+initMediaPipe();
+animate();
+</script>
+</body>
+</html>
