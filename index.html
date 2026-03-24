@@ -3,7 +3,8 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Gesture Particles</title>
+  <title>Gesture Particles by panhathai</title>
+  <link rel="icon" type="image/svg+xml" href="favicon.svg"/>
   <style>
     *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
 
@@ -39,6 +40,56 @@
       transform: scaleX(-1);
     }
 
+    #brand {
+      position: fixed;
+      top: 24px; left: 28px;
+      z-index: 10;
+      pointer-events: none;
+    }
+
+    #brand .byline a {
+      pointer-events: auto;
+    }
+
+    #brand .title {
+      font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif;
+      font-size: 11px;
+      font-weight: 500;
+      letter-spacing: 3.5px;
+      text-transform: uppercase;
+      color: rgba(255,255,255,0.82);
+      line-height: 1;
+    }
+
+    #brand .byline {
+      font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif;
+      font-size: 9px;
+      font-weight: 300;
+      letter-spacing: 2px;
+      text-transform: lowercase;
+      color: rgba(255,255,255,0.52);
+      margin-top: 7px;
+      line-height: 1;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    #brand .byline a {
+      color: inherit;
+      text-decoration: none;
+      transition: color 0.3s, opacity 0.3s;
+    }
+
+    #brand .byline a:hover {
+      color: rgba(180,220,255,0.95);
+    }
+
+    #brand .byline .sep {
+      color: rgba(255,255,255,0.40);
+      letter-spacing: 0;
+    }
+
     #gesture-label {
       position: fixed;
       top: 28px; left: 50%;
@@ -68,22 +119,49 @@
 
     #guide {
       position: fixed;
-      bottom: 20px; left: 20px;
-      color: rgba(255,255,255,0.22);
-      font-size: 9.5px;
-      line-height: 2;
-      letter-spacing: 1.5px;
+      bottom: 24px; left: 28px;
       z-index: 10;
       user-select: none;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
     }
 
-    #guide span {
-      display: inline-block;
-      width: 5px; height: 5px;
-      border-radius: 50%;
-      margin-right: 7px;
-      vertical-align: middle;
-      background: currentColor;
+    #guide .row {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif;
+    }
+
+    #guide .emoji {
+      font-size: 16px;
+      line-height: 1;
+      width: 22px;
+      text-align: center;
+    }
+
+    #guide .gesture-name {
+      font-size: 9px;
+      font-weight: 600;
+      letter-spacing: 2.5px;
+      text-transform: uppercase;
+      color: rgba(255,255,255,0.75);
+      width: 48px;
+    }
+
+    #guide .arrow {
+      font-size: 9px;
+      color: rgba(255,255,255,0.25);
+      letter-spacing: 0;
+    }
+
+    #guide .effect {
+      font-size: 9px;
+      font-weight: 300;
+      letter-spacing: 2px;
+      text-transform: uppercase;
+      color: rgba(255,255,255,0.38);
     }
   </style>
 </head>
@@ -96,16 +174,25 @@
   <canvas id="cam-canvas"></canvas>
 </div>
 
+<div id="brand">
+  <div class="title">Interactive Experience</div>
+  <div class="byline">
+    <a href="https://github.com/ppongtong/gesture-particle" target="_blank" rel="noopener">by panhathai</a>
+    <span class="sep">·</span>
+    <a href="https://ai.google.dev/edge/mediapipe/solutions/guide" target="_blank" rel="noopener">using mediapipe</a>
+  </div>
+</div>
+
 <div id="gesture-label">·</div>
 <div id="status">INITIALIZING</div>
 
 <div id="guide">
-  <div><span></span>FIST &nbsp;&nbsp;&nbsp;&nbsp;→&nbsp; SPHERE</div>
-  <div><span></span>OPEN &nbsp;&nbsp;&nbsp;&nbsp;→&nbsp; SCATTER</div>
-  <div><span></span>POINT &nbsp;&nbsp;&nbsp;→&nbsp; VORTEX</div>
-  <div><span></span>PEACE &nbsp;&nbsp;&nbsp;→&nbsp; WAVE</div>
-  <div><span></span>PINCH &nbsp;&nbsp;&nbsp;→&nbsp; IMPLODE</div>
-  <div><span></span>SWIPE &nbsp;&nbsp;&nbsp;→&nbsp; PUSH</div>
+  <div class="row"><span class="emoji">✊</span><span class="gesture-name">Fist</span><span class="arrow">→</span><span class="effect">Sphere</span></div>
+  <div class="row"><span class="emoji">🖐️</span><span class="gesture-name">Open</span><span class="arrow">→</span><span class="effect">Scatter</span></div>
+  <div class="row"><span class="emoji">☝️</span><span class="gesture-name">Point</span><span class="arrow">→</span><span class="effect">Vortex</span></div>
+  <div class="row"><span class="emoji">✌️</span><span class="gesture-name">Peace</span><span class="arrow">→</span><span class="effect">Wave</span></div>
+  <div class="row"><span class="emoji">🤌</span><span class="gesture-name">Pinch</span><span class="arrow">→</span><span class="effect">Implode</span></div>
+  <div class="row"><span class="emoji">👋</span><span class="gesture-name">Swipe</span><span class="arrow">→</span><span class="effect">Push</span></div>
 </div>
 
 <!-- MediaPipe globals (must load before module) -->
@@ -125,36 +212,41 @@
 import * as THREE from 'three';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
+// Tweak these to change the feel of the simulation.
 
-const N          = 10_000;
-const SPRING_K   = 0.052;
-const DAMPING    = 0.87;
-const NOISE      = 0.004;
-const CAM_Z      = 80;
-const SPHERE_R   = 20;
-const SCATTER_R  = 65;
-const VORTEX_H   = 65;
-const WAVE_SIZE  = 50;
-const GOLDEN     = (1 + Math.sqrt(5)) / 2;
+const N          = 10_000; // total number of particles
+const SPRING_K   = 0.052;  // how strongly each particle is pulled toward its target (higher = snappier)
+const DAMPING    = 0.87;   // velocity multiplier each frame — slows particles down over time (lower = more drag)
+const NOISE      = 0.004;  // tiny random jitter added to velocity each frame so particles feel alive
+const CAM_Z      = 80;     // camera distance from the origin along the Z axis
+const SPHERE_R   = 20;     // radius of the sphere formation
+const SCATTER_R  = 65;     // max radius particles fly out to in scatter mode
+const VORTEX_H   = 65;     // total height of the vortex tornado column
+const WAVE_SIZE  = 50;     // width and depth of the wave grid
+const GOLDEN     = (1 + Math.sqrt(5)) / 2; // golden ratio — used for Fibonacci sphere distribution
 
-// World-space extent visible at z=0 with FOV=60, aspect 16/9, cam at z=80:
-// half-height ≈ 46, half-width ≈ 82. Map hand to ±40 / ±27.
+// With FOV=60°, aspect 16/9, camera at z=80:
+//   visible half-height at z=0 ≈ 46 units, half-width ≈ 82 units.
+// We scale normalised MediaPipe coords (0–1) into this world space.
 const HAND_SCALE_X = 82;
 const HAND_SCALE_Y = 55;
 
 // ─── Three.js ────────────────────────────────────────────────────────────────
+// Standard Three.js setup: renderer → scene → camera.
 
 const mainCanvas = document.getElementById('main-canvas');
 const renderer   = new THREE.WebGLRenderer({ canvas: mainCanvas, antialias: false });
-renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2)); // cap at 2x so high-DPI screens don't tank performance
 renderer.setSize(window.innerWidth, window.innerHeight);
-renderer.setClearColor(0x000005, 1);
+renderer.setClearColor(0x000005, 1); // near-black with a faint blue tint
 
 const scene  = new THREE.Scene();
+// FOV 60°, near/far clipping planes at 0.1 and 1000
 const camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 1000);
 camera.position.set(0, 0, CAM_Z);
 camera.lookAt(0, 0, 0);
 
+// Keep canvas and camera in sync when the browser window is resized
 window.addEventListener('resize', () => {
   renderer.setSize(window.innerWidth, window.innerHeight);
   camera.aspect = window.innerWidth / window.innerHeight;
@@ -162,39 +254,47 @@ window.addEventListener('resize', () => {
 });
 
 // ─── Particle Buffers ─────────────────────────────────────────────────────────
+// All particle data lives in flat Float32Arrays (not objects) so they sit in
+// contiguous memory — much faster to loop over than an array of {x,y,z} objects.
+// Each array stores 3 values per particle (x,y,z) except sz and hues (1 per particle).
 
-const pos  = new Float32Array(N * 3);
-const vel  = new Float32Array(N * 3);
-const tgt  = new Float32Array(N * 3);
-const col  = new Float32Array(N * 3);
-const sz   = new Float32Array(N);
-const hues = new Float32Array(N);          // per-particle hue variety 0..1
+const pos  = new Float32Array(N * 3); // current world-space positions
+const vel  = new Float32Array(N * 3); // current velocities
+const tgt  = new Float32Array(N * 3); // target positions (spring pulls pos toward tgt)
+const col  = new Float32Array(N * 3); // RGB colour (0–1 each channel)
+const sz   = new Float32Array(N);     // point sprite size per particle
+const hues = new Float32Array(N);     // fixed hue offset per particle (adds variety within a palette)
 
-// Pre-built sphere target offsets (centred at origin, reused per mode)
+// Precomputed Fibonacci sphere offsets, centred at origin.
+// Stored once and reused every frame in sphere mode — cheaper than recalculating.
 const sphereOff = new Float32Array(N * 3);
 
-// Initialise in a loose sphere cloud
+// Place all particles in a loose sphere cloud at startup
 for (let i = 0; i < N; i++) {
   const i3 = i * 3;
-  const lat = Math.acos(1 - 2 * (i + 0.5) / N);
-  const lon = 2 * Math.PI * i / GOLDEN;
-  const r   = (1.5 + Math.random() * 1.5) * SPHERE_R;
+
+  // Fibonacci sphere formula: distributes points evenly across a sphere surface
+  const lat = Math.acos(1 - 2 * (i + 0.5) / N); // polar angle
+  const lon = 2 * Math.PI * i / GOLDEN;           // azimuthal angle
+  const r   = (1.5 + Math.random() * 1.5) * SPHERE_R; // randomise radius for a cloud feel
   pos[i3]   = r * Math.sin(lat) * Math.cos(lon);
   pos[i3+1] = r * Math.cos(lat);
   pos[i3+2] = r * Math.sin(lat) * Math.sin(lon);
 
+  // Small random starting velocity so particles drift rather than freeze
   vel[i3]   = (Math.random() - 0.5) * 0.4;
   vel[i3+1] = (Math.random() - 0.5) * 0.4;
   vel[i3+2] = (Math.random() - 0.5) * 0.4;
 
-  hues[i] = Math.random();
-  sz[i]   = 1.8 + Math.random() * 3.2;
+  hues[i] = Math.random();              // each particle gets a unique hue seed
+  sz[i]   = 1.8 + Math.random() * 3.2; // vary sizes for depth/texture
 
+  // Default colour: deep blue
   col[i3]   = 0.1;
   col[i3+1] = 0.3;
   col[i3+2] = 1.0;
 
-  // Fibonacci sphere offsets
+  // Precompute the sphere formation target for this particle (slightly randomised radius)
   const sLat = Math.acos(1 - 2 * (i + 0.5) / N);
   const sLon = 2 * Math.PI * i / GOLDEN;
   const sR   = SPHERE_R * (0.88 + Math.random() * 0.24);
@@ -202,40 +302,62 @@ for (let i = 0; i < N; i++) {
   sphereOff[i3+1] = sR * Math.cos(sLat);
   sphereOff[i3+2] = sR * Math.sin(sLat) * Math.sin(sLon);
 }
+// Start with targets equal to initial positions so no spring force fires at frame 0
 tgt.set(pos);
 
 // ─── Three.js Geometry & Shader ───────────────────────────────────────────────
+// We use a custom ShaderMaterial so we can write our own GLSL — this gives us
+// full control over how each particle is sized and drawn.
 
 const geo = new THREE.BufferGeometry();
+// DynamicDrawUsage tells the GPU these buffers will change every frame (position, colour)
 geo.setAttribute('position', new THREE.BufferAttribute(pos, 3).setUsage(THREE.DynamicDrawUsage));
 geo.setAttribute('aColor',   new THREE.BufferAttribute(col, 3).setUsage(THREE.DynamicDrawUsage));
-geo.setAttribute('aSize',    new THREE.BufferAttribute(sz,  1));
+geo.setAttribute('aSize',    new THREE.BufferAttribute(sz,  1)); // size never changes, no hint needed
 
+// VERTEX SHADER — runs once per particle on the GPU.
+// Converts 3D world position to 2D screen position and sets the point sprite size.
 const vertexShader = /* glsl */ `
-  attribute vec3  aColor;
-  attribute float aSize;
-  varying   vec3  vColor;
+  attribute vec3  aColor; // colour passed in from the CPU
+  attribute float aSize;  // base size passed in from the CPU
+  varying   vec3  vColor; // passed through to the fragment shader
 
   void main() {
     vColor = aColor;
+
+    // Transform the particle's 3D position into camera (view) space
     vec4 mv = modelViewMatrix * vec4(position, 1.0);
+
+    // Scale point size by distance: farther away = smaller sprite (perspective effect)
+    // The 320.0 constant controls the overall size at a reference distance
     gl_PointSize = aSize * (320.0 / -mv.z);
+
+    // Final clip-space position used by the GPU to place the point on screen
     gl_Position  = projectionMatrix * mv;
   }
 `;
 
+// FRAGMENT SHADER — runs once per pixel within each point sprite square.
+// Draws a glowing soft circle instead of a hard square.
 const fragmentShader = /* glsl */ `
   varying vec3 vColor;
 
   void main() {
+    // gl_PointCoord is (0,0) at top-left and (1,1) at bottom-right of the sprite square.
+    // Subtracting 0.5 re-centres it so (0,0) is the middle of the sprite.
     vec2  uv   = gl_PointCoord - 0.5;
-    float dist = length(uv);
+    float dist = length(uv); // distance from centre of the sprite
+
+    // Discard pixels outside the circle — makes the sprite round, not square
     if (dist > 0.5) discard;
 
+    // Bright inner core: full brightness within radius 0.18, fading to 0 at 0.5
     float core  = 1.0 - smoothstep(0.0, 0.18, dist);
+    // Soft outer halo: full at centre, fading to 0 at edge
     float halo  = 1.0 - smoothstep(0.0, 0.50, dist);
     float alpha = core * 0.85 + halo * 0.30;
 
+    // Overbright the core so it blooms when particles overlap (additive blending does the rest)
     vec3 bright = vColor * (1.0 + core * 2.2);
     gl_FragColor = vec4(bright, alpha);
   }
@@ -244,9 +366,9 @@ const fragmentShader = /* glsl */ `
 const mat = new THREE.ShaderMaterial({
   vertexShader,
   fragmentShader,
-  blending:     THREE.AdditiveBlending,
-  depthWrite:   false,
-  transparent:  true,
+  blending:   THREE.AdditiveBlending, // overlapping particles ADD their colours together → natural glow
+  depthWrite: false,                  // don't write to depth buffer — prevents particles clipping each other
+  transparent: true,
 });
 
 const points = new THREE.Points(geo, mat);
@@ -254,63 +376,76 @@ scene.add(points);
 
 // ─── State ────────────────────────────────────────────────────────────────────
 
-let mode         = 'idle';
-let handX        = 0;
-let handY        = 0;
-let handVisible  = false;
-let time         = 0;
-let swipeX       = 0;   // decaying swipe impulse
-let swipeY       = 0;
+let mode         = 'idle';  // current formation mode
+let handX        = 0;       // smoothed hand world-space X (updated from MediaPipe)
+let handY        = 0;       // smoothed hand world-space Y
+let handVisible  = false;   // whether MediaPipe found a hand this frame
+let time         = 0;       // elapsed time in seconds (incremented each frame)
+let swipeX       = 0;       // horizontal swipe impulse — decays to 0 over ~10 frames
+let swipeY       = 0;       // vertical swipe impulse
+
+// Gesture stabilisation: only switch gesture after it holds for STAB consecutive frames.
+// This prevents the display flickering when the hand is between two poses.
 let prevGesture  = 'none';
 let stabCount    = 0;
-const STAB       = 4;   // frames before gesture locks in
+const STAB       = 4; // number of stable frames required before locking in a gesture
 
-// Swipe velocity tracking
+// Ring buffer of recent hand positions used to compute swipe velocity
 const posHistory = [];
-const HIST_LEN   = 5;
+const HIST_LEN   = 5; // how many frames of history to keep
 
-// Colour palette (HSL normalised 0-1), lerped each frame
+// Current and target colour palette in HSL (all values normalised 0–1).
+// palH/S/L lerp toward tgtH/S/L each frame for smooth colour transitions.
 let palH = 0.62, palS = 0.8, palL = 0.60;
 let tgtH = 0.62, tgtS = 0.8, tgtL = 0.60;
 
-// Scatter targets are random — precompute when mode changes
+// Scatter mode uses random positions computed once when the mode activates,
+// then reused every frame — so particles don't re-randomise each frame.
 const scatterTgt = new Float32Array(N * 3);
 
 // ─── Colour Helpers ───────────────────────────────────────────────────────────
 
+// Converts HSL (all 0–1) to RGB (all 0–1).
+// Uses the standard CSS algorithm — the magic numbers (12, 8, 4, 3, 9) come from
+// mapping the hue circle onto a piecewise linear function for R, G, and B.
 function hsl2rgb(h, s, l) {
   const a = s * Math.min(l, 1 - l);
   const f = n => { const k = (n + h * 12) % 12; return l - a * Math.max(Math.min(k - 3, 9 - k, 1), -1); };
-  return [f(0), f(8), f(4)];
+  return [f(0), f(8), f(4)]; // red, green, blue
 }
-
-// Lerp colour targets toward tgt each frame
-let colH = new Float32Array(N);  // per-particle colour lerp factor
-colH.fill(0);
 
 function updateColors() {
   const spd = 0.025;
+  // Lerp the palette hue quickly (×4) so colour shifts feel snappy,
+  // but lerp saturation/lightness slowly for a gradual mood change
   palH += (tgtH - palH) * spd * 4;
   palS += (tgtS - palS) * spd;
   palL += (tgtL - palL) * spd;
 
   for (let i = 0; i < N; i++) {
     const i3 = i * 3;
+    // Each particle gets a slight hue variation (±7%) around the palette hue
+    // so the cloud looks colourful rather than one flat tone
     const h = ((palH + (hues[i] - 0.5) * 0.14) % 1 + 1) % 1;
+    // Larger particles are slightly brighter (sz ranges 1.8–5.0, so sz/12 ≈ 0.15–0.42)
     const [r, g, b] = hsl2rgb(h, palS, palL * (0.6 + sz[i] / 12));
     col[i3]   = r;
     col[i3+1] = g;
     col[i3+2] = b;
   }
+  // Tell Three.js the colour buffer has changed so it re-uploads it to the GPU
   geo.attributes.aColor.needsUpdate = true;
 }
 
 // ─── Formation Target Setters ─────────────────────────────────────────────────
 
+// Called when the detected gesture changes. Sets the colour palette target and,
+// for scatter mode, pre-randomises the target positions.
 function setMode(newMode) {
-  if (newMode === mode) return;
+  if (newMode === mode) return; // no change — bail early
   mode = newMode;
 
+  // Each mode gets a distinct colour palette (HSL, all values 0–1)
   switch (mode) {
     case 'sphere':  tgtH = 0.52; tgtS = 1.0; tgtL = 0.65; break;  // cyan
     case 'scatter': tgtH = 0.09; tgtS = 1.0; tgtL = 0.65; break;  // gold-orange
@@ -321,12 +456,14 @@ function setMode(newMode) {
     default:        tgtH = 0.62; tgtS = 0.7; tgtL = 0.55; break;  // deep blue
   }
 
+  // Scatter targets are random and only need computing once per activation,
+  // not every frame — so we bake them here
   if (mode === 'scatter') {
     for (let i = 0; i < N; i++) {
       const i3 = i * 3;
-      const r  = SCATTER_R * (0.3 + Math.random() * 0.7);
-      const th = Math.random() * Math.PI * 2;
-      const ph = Math.acos(2 * Math.random() - 1);
+      const r  = SCATTER_R * (0.3 + Math.random() * 0.7); // vary the explosion radius
+      const th = Math.random() * Math.PI * 2;              // random azimuthal angle
+      const ph = Math.acos(2 * Math.random() - 1);         // random polar angle (uniform on sphere)
       scatterTgt[i3]   = r * Math.sin(ph) * Math.cos(th);
       scatterTgt[i3+1] = r * Math.cos(ph);
       scatterTgt[i3+2] = r * Math.sin(ph) * Math.sin(th);
@@ -334,18 +471,21 @@ function setMode(newMode) {
   }
 }
 
-// Recompute targets every frame (for animated and hand-tracking modes)
+// Called every frame to write into the tgt[] array.
+// cx/cy is the hand's current world-space position — formations centre on the hand.
 function updateTargets(t) {
   const cx = handX, cy = handY, cz = 0;
 
   switch (mode) {
+
     case 'idle': {
-      // Slow-rotating dispersed nebula
+      // Slowly rotating sphere — the fibonacci lon angle advances with time,
+      // and the radius pulses gently using each particle's hue as a phase offset
       for (let i = 0; i < N; i++) {
         const i3  = i * 3;
         const lat = Math.acos(1 - 2 * (i + 0.5) / N);
-        const lon = 2 * Math.PI * i / GOLDEN + t * 0.08;
-        const r   = SPHERE_R * (1.1 + 0.3 * Math.sin(t * 0.4 + hues[i] * 6));
+        const lon = 2 * Math.PI * i / GOLDEN + t * 0.08; // t * 0.08 makes it rotate slowly
+        const r   = SPHERE_R * (1.1 + 0.3 * Math.sin(t * 0.4 + hues[i] * 6)); // breathing radius
         tgt[i3]   = r * Math.sin(lat) * Math.cos(lon);
         tgt[i3+1] = r * Math.cos(lat);
         tgt[i3+2] = r * Math.sin(lat) * Math.sin(lon);
@@ -354,6 +494,7 @@ function updateTargets(t) {
     }
 
     case 'sphere': {
+      // Add the precomputed sphere offsets to the hand position so the orb follows the hand
       for (let i = 0; i < N; i++) {
         const i3 = i * 3;
         tgt[i3]   = cx + sphereOff[i3];
@@ -364,6 +505,7 @@ function updateTargets(t) {
     }
 
     case 'scatter': {
+      // Just copy the pre-baked random scatter positions (computed in setMode)
       for (let i = 0; i < N; i++) {
         const i3 = i * 3;
         tgt[i3]   = scatterTgt[i3];
@@ -374,12 +516,14 @@ function updateTargets(t) {
     }
 
     case 'vortex': {
+      // Helical spiral: frac (0–1) controls height and radius.
+      // The angle advances with both frac and time so the whole thing spins.
       for (let i = 0; i < N; i++) {
-        const i3   = i * 3;
-        const frac = i / N;
-        const angle = frac * Math.PI * 28 + t * 2.5;
-        const r     = 4 + frac * 22;
-        const h     = (frac - 0.5) * VORTEX_H;
+        const i3    = i * 3;
+        const frac  = i / N;                          // 0 at bottom, 1 at top
+        const angle = frac * Math.PI * 28 + t * 2.5; // many spiral turns + continuous rotation
+        const r     = 4 + frac * 22;                  // radius widens toward the top
+        const h     = (frac - 0.5) * VORTEX_H;        // height: −VORTEX_H/2 to +VORTEX_H/2
         tgt[i3]   = cx + r * Math.cos(angle);
         tgt[i3+1] = cy + h;
         tgt[i3+2] = cz + r * Math.sin(angle);
@@ -388,7 +532,9 @@ function updateTargets(t) {
     }
 
     case 'wave': {
-      const cols = Math.ceil(Math.sqrt(N));
+      // Lay particles out on a flat grid (XZ plane), then displace Y with a sine × cosine wave.
+      // Both time terms advance at different speeds so the wave never looks static.
+      const cols = Math.ceil(Math.sqrt(N)); // grid is ~100×100 for N=10000
       for (let i = 0; i < N; i++) {
         const i3 = i * 3;
         const ix = i % cols;
@@ -404,6 +550,8 @@ function updateTargets(t) {
     }
 
     case 'implode': {
+      // All particles collapse to the hand position.
+      // Tiny random ±0.4 jitter keeps them vibrating at the centre rather than freezing.
       for (let i = 0; i < N; i++) {
         const i3 = i * 3;
         tgt[i3]   = cx + (Math.random() - 0.5) * 0.8;
@@ -414,12 +562,13 @@ function updateTargets(t) {
     }
 
     case 'follow': {
-      // Loose swirling cloud that follows the hand
+      // Loose animated sphere cloud that tracks the hand.
+      // The angle advances with time so the cloud swirls around the hand position.
       for (let i = 0; i < N; i++) {
         const i3    = i * 3;
         const frac  = i / N;
-        const angle = frac * Math.PI * 40 + t * 1.5;
-        const r     = 2 + frac * 18;
+        const angle = frac * Math.PI * 40 + t * 1.5; // continuous swirl
+        const r     = 2 + frac * 18;                  // spread from tight centre to loose outer edge
         const lat   = Math.acos(1 - 2 * (i + 0.5) / N);
         tgt[i3]   = cx + r * Math.sin(lat) * Math.cos(angle);
         tgt[i3+1] = cy + r * Math.cos(lat);
@@ -431,11 +580,18 @@ function updateTargets(t) {
 }
 
 // ─── Physics ──────────────────────────────────────────────────────────────────
+// Simple spring–damper system. Each particle:
+//   1. Feels a spring force pulling it toward its target
+//   2. Gets a swipe impulse if the hand was swiped
+//   3. Gets a tiny noise kick to stay lively
+//   4. Has its velocity damped (multiplied by DAMPING < 1) to simulate drag
+//   5. Moves by its velocity
 
 function stepPhysics() {
   for (let i = 0; i < N; i++) {
     const i3 = i * 3;
 
+    // Spring force = displacement × spring constant
     const dx = tgt[i3]   - pos[i3];
     const dy = tgt[i3+1] - pos[i3+1];
     const dz = tgt[i3+2] - pos[i3+2];
@@ -444,53 +600,67 @@ function stepPhysics() {
     vel[i3+1] += dy * SPRING_K;
     vel[i3+2] += dz * SPRING_K;
 
-    // Swipe impulse (varies per particle for organic feel)
+    // Apply swipe impulse — scale by a per-particle factor so particles
+    // spread out organically rather than all moving at exactly the same speed
     vel[i3]   += swipeX * (0.7 + hues[i] * 0.6);
     vel[i3+1] += swipeY * (0.7 + hues[i] * 0.6);
 
-    // Micro-turbulence
+    // Micro-turbulence: tiny random nudge each frame keeps particles feeling alive
     vel[i3]   += (Math.random() - 0.5) * NOISE;
     vel[i3+1] += (Math.random() - 0.5) * NOISE;
     vel[i3+2] += (Math.random() - 0.5) * NOISE;
 
+    // Damping: multiply velocity by a value slightly below 1 each frame.
+    // Without this, particles would oscillate forever around their targets.
     vel[i3]   *= DAMPING;
     vel[i3+1] *= DAMPING;
     vel[i3+2] *= DAMPING;
 
+    // Integrate: move position by velocity
     pos[i3]   += vel[i3];
     pos[i3+1] += vel[i3+1];
     pos[i3+2] += vel[i3+2];
   }
 
+  // Decay swipe impulse — each frame it shrinks to 82% of its previous value
   swipeX *= 0.82;
   swipeY *= 0.82;
 
+  // Tell Three.js the positions have changed so it re-uploads the buffer to the GPU
   geo.attributes.position.needsUpdate = true;
 }
 
 // ─── Gesture Detection ────────────────────────────────────────────────────────
+// MediaPipe gives us 21 landmarks per hand. We classify the pose by checking
+// which fingers are extended and whether a pinch is happening.
 
+// A finger is "extended" when its tip (e.g. landmark 8) is higher in the frame
+// than its PIP joint (e.g. landmark 6). In MediaPipe, Y=0 is the top of the frame,
+// so a smaller Y means higher up — hence tip.y < pip.y means extended.
+// The 0.03 threshold avoids false positives from slight bends.
 function isExtended(lm, tip, pip) {
   return lm[tip].y < lm[pip].y - 0.03;
 }
 
 function detectGesture(lm) {
-  // Pinch: thumb tip close to index tip
+  // Pinch: check if thumb tip (4) and index tip (8) are very close together
   const tx = lm[4].x - lm[8].x;
   const ty = lm[4].y - lm[8].y;
-  if (Math.sqrt(tx * tx + ty * ty) < 0.06) return 'pinch';
+  if (Math.sqrt(tx * tx + ty * ty) < 0.06) return 'pinch'; // 0.06 = ~6% of frame width
 
-  const idx  = isExtended(lm, 8,  6);
-  const mid  = isExtended(lm, 12, 10);
-  const ring = isExtended(lm, 16, 14);
-  const pnk  = isExtended(lm, 20, 18);
-  const ext  = [idx, mid, ring, pnk].filter(Boolean).length;
+  // Check each finger: tip landmark index, PIP joint landmark index
+  const idx  = isExtended(lm, 8,  6);  // index finger
+  const mid  = isExtended(lm, 12, 10); // middle finger
+  const ring = isExtended(lm, 16, 14); // ring finger
+  const pnk  = isExtended(lm, 20, 18); // pinky
 
-  if (ext === 0)                            return 'fist';
-  if (ext >= 4)                             return 'open';
-  if (idx && !mid && !ring && !pnk)        return 'point';
-  if (idx && mid && !ring && !pnk)         return 'peace';
-  return 'default';
+  const ext  = [idx, mid, ring, pnk].filter(Boolean).length; // count of extended fingers
+
+  if (ext === 0)                     return 'fist';  // all fingers curled
+  if (ext >= 4)                      return 'open';  // all fingers out
+  if (idx && !mid && !ring && !pnk)  return 'point'; // only index out
+  if (idx && mid && !ring && !pnk)   return 'peace'; // index + middle out
+  return 'default'; // any other combination — just follow the hand
 }
 
 // ─── UI Elements ─────────────────────────────────────────────────────────────
@@ -520,20 +690,25 @@ const GESTURE_MODE = {
 };
 
 // ─── MediaPipe Hand Result Handler ────────────────────────────────────────────
+// This callback fires every frame (at ~30fps) with fresh landmark data.
+// It handles: drawing the webcam overlay, mapping hand position to world space,
+// swipe detection, and gesture classification.
 
 function onHandResults(results) {
   const W = results.image.width;
   const H = results.image.height;
+  // Resize the overlay canvas to match the video resolution
   camCanvas.width  = W;
   camCanvas.height = H;
 
   camCtx.clearRect(0, 0, W, H);
 
-  // Dim the live feed slightly so skeleton pops
+  // Draw the video frame at 75% opacity so the skeleton is easy to see on top
   camCtx.globalAlpha = 0.75;
   camCtx.drawImage(results.image, 0, 0);
   camCtx.globalAlpha = 1.0;
 
+  // No hand detected — reset to idle and clear the gesture label
   if (!results.multiHandLandmarks || results.multiHandLandmarks.length === 0) {
     handVisible = false;
     setMode('idle');
@@ -543,74 +718,85 @@ function onHandResults(results) {
   }
 
   handVisible = true;
-  statusEl.style.opacity = '0';
+  statusEl.style.opacity = '0'; // hide the "SHOW YOUR HAND" prompt once tracking starts
 
-  const lm = results.multiHandLandmarks[0];
+  const lm = results.multiHandLandmarks[0]; // we only track one hand (maxNumHands: 1)
 
-  // Draw skeleton using MediaPipe drawing utils
+  // Draw bones and joints using MediaPipe's built-in drawing utilities
   if (window.drawConnectors && window.drawLandmarks && window.HAND_CONNECTIONS) {
     drawConnectors(camCtx, lm, HAND_CONNECTIONS, { color: 'rgba(0,200,255,0.8)', lineWidth: 1 });
     drawLandmarks(camCtx, lm, { color: 'rgba(255,255,255,0.9)', lineWidth: 0.5, radius: 2 });
   }
 
-  // Palm centre (average of wrist + finger bases)
+  // Compute palm centre by averaging the wrist (0) and the four finger base knuckles (5,9,13,17)
   const palmX = (lm[0].x + lm[5].x + lm[9].x + lm[13].x + lm[17].x) / 5;
   const palmY = (lm[0].y + lm[5].y + lm[9].y + lm[13].y + lm[17].y) / 5;
 
-  // Map to world space. Flip X so mirror matches expectations.
+  // Convert normalised 0–1 coords to world-space units.
+  // Flip X because the webcam is CSS-mirrored: landmark x=0.8 (right side of raw video)
+  // appears on the left of the mirrored display, which should map to negative world X.
   const wx = (0.5 - palmX) * HAND_SCALE_X;
   const wy = (0.5 - palmY) * HAND_SCALE_Y;
 
-  // Smooth hand position
+  // Lerp the smoothed hand position toward the raw value — prevents jittery formations
   handX += (wx - handX) * 0.18;
   handY += (wy - handY) * 0.18;
 
-  // Track velocity for swipe
+  // ── Swipe detection ──
+  // Keep the last HIST_LEN raw positions and measure total displacement.
   posHistory.push({ x: wx, y: wy });
-  if (posHistory.length > HIST_LEN) posHistory.shift();
+  if (posHistory.length > HIST_LEN) posHistory.shift(); // drop the oldest sample
 
   if (posHistory.length === HIST_LEN) {
-    const vx = posHistory[HIST_LEN - 1].x - posHistory[0].x;
+    const vx = posHistory[HIST_LEN - 1].x - posHistory[0].x; // total X displacement over last 5 frames
     const vy = posHistory[HIST_LEN - 1].y - posHistory[0].y;
     const speed = Math.sqrt(vx * vx + vy * vy);
 
-    if (speed > 6) {
+    if (speed > 6) { // threshold: must move >6 world units in 5 frames to count as a swipe
+      // Convert to directional impulse and add to the decaying swipe state
       swipeX += (vx / speed) * speed * 0.18;
       swipeY += (vy / speed) * speed * 0.12;
 
+      // Show a directional arrow label — whichever axis has more movement wins
       const dir = Math.abs(vx) > Math.abs(vy)
         ? (vx > 0 ? '→ PUSH RIGHT' : '← PUSH LEFT')
         : (vy > 0 ? '↓ PUSH DOWN' : '↑ PUSH UP');
       labelEl.textContent = dir;
       labelEl.style.color = 'rgba(255,220,80,0.9)';
-      return;
+      return; // skip gesture classification this frame
     }
   }
 
-  // Stable gesture detection
+  // ── Gesture classification with stabilisation ──
   const g = detectGesture(lm);
+
   if (g === prevGesture) {
-    stabCount++;
+    stabCount++; // same gesture again — increment stability counter
   } else {
-    stabCount = 0;
+    stabCount   = 0; // gesture changed — reset counter
     prevGesture = g;
   }
 
+  // Only commit the gesture once it has held stable for STAB frames
   if (stabCount >= STAB) {
     setMode(GESTURE_MODE[g] || 'follow');
     labelEl.textContent = GESTURE_LABEL[g] || '·';
 
+    // Tint the label to match the mode's colour palette
     const hslStr = `hsl(${Math.round(tgtH * 360)}, ${Math.round(tgtS * 100)}%, ${Math.round(tgtL * 100)}%)`;
     labelEl.style.color = hslStr;
   }
 }
 
 // ─── MediaPipe Init ───────────────────────────────────────────────────────────
+// Sets up the MediaPipe Hands pipeline and connects it to the webcam.
+// Must be async because getUserMedia() requires a Promise.
 
 async function initMediaPipe() {
-  statusEl.textContent  = 'REQUESTING CAMERA';
+  statusEl.textContent   = 'REQUESTING CAMERA';
   statusEl.style.opacity = '1';
 
+  // Ask the browser for webcam access — this triggers the permission popup
   try {
     await navigator.mediaDevices.getUserMedia({ video: { width: 640, height: 480, facingMode: 'user' } });
   } catch (err) {
@@ -620,19 +806,24 @@ async function initMediaPipe() {
 
   statusEl.textContent = 'LOADING MODEL';
 
+  // Create the Hands detector. locateFile tells MediaPipe where to download
+  // its WASM binary and TFLite model files from (we point it at jsDelivr CDN).
   const hands = new Hands({
     locateFile: f => `https://cdn.jsdelivr.net/npm/@mediapipe/hands@0.4.1646424915/${f}`,
   });
 
   hands.setOptions({
-    maxNumHands:            1,
-    modelComplexity:        1,
-    minDetectionConfidence: 0.75,
-    minTrackingConfidence:  0.55,
+    maxNumHands:            1,    // only track one hand for simplicity
+    modelComplexity:        1,    // 0 = lite (faster), 1 = full (more accurate)
+    minDetectionConfidence: 0.75, // how confident MediaPipe needs to be to start tracking
+    minTrackingConfidence:  0.55, // how confident it needs to be to keep tracking between frames
   });
 
+  // Register our callback — called every frame with fresh landmark data
   hands.onResults(onHandResults);
 
+  // MediaPipe's Camera utility handles reading video frames and feeding them
+  // to the Hands model at the right cadence
   const mpCam = new Camera(videoEl, {
     onFrame: async () => { await hands.send({ image: videoEl }); },
     width: 640, height: 480,
@@ -641,39 +832,41 @@ async function initMediaPipe() {
   mpCam.start().then(() => {
     statusEl.textContent   = 'SHOW YOUR HAND';
     statusEl.style.opacity = '1';
-    setTimeout(() => { statusEl.style.opacity = '0'; }, 3500);
+    setTimeout(() => { statusEl.style.opacity = '0'; }, 3500); // auto-hide after 3.5s
   }).catch(() => {
     statusEl.textContent = 'CAMERA ERROR — RELOAD';
   });
 }
 
 // ─── Animation Loop ───────────────────────────────────────────────────────────
+// requestAnimationFrame gives us ~60fps. Each frame we: update targets → run
+// physics → update colours → render. The MediaPipe callback runs independently
+// on its own ~30fps cadence and just updates the hand position + gesture state.
 
-// Slight camera drift for depth
-let camAngle = 0;
+let camAngle = 0; // accumulates over time to drive the subtle camera orbit
 
 function animate() {
-  requestAnimationFrame(animate);
+  requestAnimationFrame(animate); // schedule the next frame
 
-  time      += 0.016;
-  camAngle  += 0.0004;
+  time     += 0.016;  // advance the simulation clock (~1/60s per frame)
+  camAngle += 0.0004; // very slow orbit — full circle takes ~15,700 frames (~4.5 min)
 
-  // Subtle camera bob
+  // Gently rock the camera around the scene centre for a subtle 3D parallax feel
   camera.position.x = Math.sin(camAngle) * 3;
   camera.position.y = Math.cos(camAngle * 0.7) * 1.5;
   camera.lookAt(0, 0, 0);
 
-  // If no hand, centre slowly
+  // When no hand is detected, drift the formation centre back toward the origin
   if (!handVisible) {
     handX *= 0.97;
     handY *= 0.97;
   }
 
-  updateTargets(time);
-  stepPhysics();
-  updateColors();
+  updateTargets(time); // recompute where each particle wants to be this frame
+  stepPhysics();       // move particles toward their targets via spring physics
+  updateColors();      // lerp colour palette and write per-particle RGB
 
-  renderer.render(scene, camera);
+  renderer.render(scene, camera); // draw the scene
 }
 
 // ─── Boot ─────────────────────────────────────────────────────────────────────
