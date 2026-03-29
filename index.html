@@ -108,8 +108,9 @@
       position: fixed;
       top: 50%; left: 50%;
       transform: translate(-50%, -50%);
-      color: rgba(255,255,255,0.5);
-      font-size: 13px;
+      color: rgba(255,255,255,0.9);
+      font-size: 14px;
+      font-weight: 600;
       letter-spacing: 5px;
       text-transform: uppercase;
       z-index: 20;
@@ -187,6 +188,7 @@
 <div id="status">INITIALIZING</div>
 
 <div id="guide">
+  <div class="row" id="audio-toggle" style="cursor: pointer; padding-bottom: 8px; margin-bottom: 8px; border-bottom: 1px solid rgba(255,255,255,0.15); transition: opacity 0.2s;"><span class="emoji">🎵</span><span class="gesture-name">Music</span><span class="arrow">→</span><span class="effect" id="music-status">CLICK TO START (ON/OFF)</span></div>
   <div class="row"><span class="emoji">✊</span><span class="gesture-name">Fist</span><span class="arrow">→</span><span class="effect">Sphere</span></div>
   <div class="row"><span class="emoji">🖐️</span><span class="gesture-name">Open</span><span class="arrow">→</span><span class="effect">Scatter</span></div>
   <div class="row"><span class="emoji">☝️</span><span class="gesture-name">Point</span><span class="arrow">→</span><span class="effect">Vortex</span></div>
@@ -838,6 +840,97 @@ async function initMediaPipe() {
   });
 }
 
+// ─── Generative Ambient Audio ─────────────────────────────────────────────────
+let audioCtx;
+let synthFilter;
+let synthStarted = false;
+let synthSTARTED = false;
+let thereminOscs = [];
+let thereminGain;
+
+function initAudio() {
+  if (synthStarted) return;
+  synthStarted = true;
+  
+  audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+  if (audioCtx.state === 'suspended') audioCtx.resume();
+  
+  // Master gain
+  const masterGain = audioCtx.createGain();
+  masterGain.gain.value = 0.5;
+  masterGain.connect(audioCtx.destination);
+  
+  // Dynamic filter modulated by particles
+  synthFilter = audioCtx.createBiquadFilter();
+  synthFilter.type = 'lowpass';
+  synthFilter.frequency.value = 800;
+  synthFilter.Q.value = 0.5; // low Q makes the filter very soft and transparent
+  synthFilter.connect(masterGain);
+  
+  // Relaxing pad setup (no harsh echo, routing straight to filter)
+  thereminGain = audioCtx.createGain();
+  thereminGain.gain.value = 0; // Starts silent
+  thereminGain.connect(synthFilter);
+  
+  // Slow relaxing pitch drift (warble/chorus effect instead of sci-fi vibrato)
+  const vibratoLfo = audioCtx.createOscillator();
+  vibratoLfo.type = 'sine';
+  vibratoLfo.frequency.value = 0.3; // 0.3 Hz slow breathing
+  const vibratoGain = audioCtx.createGain();
+  vibratoGain.gain.value = 3; // extremely subtle depth
+  vibratoLfo.connect(vibratoGain);
+  
+  thereminOscs = [];
+  for (let i = 0; i < 4; i++) {
+    const osc = audioCtx.createOscillator();
+    osc.type = 'sine';
+    osc.frequency.value = 400; 
+    vibratoGain.connect(osc.frequency);
+    osc.connect(thereminGain);
+    osc.start();
+    thereminOscs.push(osc);
+  }
+  
+  vibratoLfo.start();
+}
+
+const audioToggleEl = document.getElementById('audio-toggle');
+const musicStatusEl = document.getElementById('music-status');
+
+// Hover effect for the new toggle
+audioToggleEl.addEventListener('mouseenter', () => audioToggleEl.style.opacity = '0.7');
+audioToggleEl.addEventListener('mouseleave', () => audioToggleEl.style.opacity = '1');
+
+function toggleAudio(e) {
+  if (e) e.stopPropagation();
+  if (!synthStarted) {
+    initAudio();
+    musicStatusEl.textContent = 'ON';
+    musicStatusEl.style.color = 'rgba(180,255,180,0.8)';
+  } else if (audioCtx) {
+    if (audioCtx.state === 'running') {
+      audioCtx.suspend();
+      musicStatusEl.textContent = 'OFF';
+      musicStatusEl.style.color = 'rgba(255,180,180,0.8)';
+    } else if (audioCtx.state === 'suspended') {
+      audioCtx.resume();
+      musicStatusEl.textContent = 'ON';
+      musicStatusEl.style.color = 'rgba(180,255,180,0.8)';
+    }
+  }
+}
+
+audioToggleEl.addEventListener('click', toggleAudio);
+audioToggleEl.addEventListener('touchstart', toggleAudio, { passive: true });
+
+// Global fallback: if they just click anywhere on the page, start the audio initially
+window.addEventListener('click', () => {
+  if (!synthStarted) toggleAudio();
+});
+window.addEventListener('touchstart', () => {
+  if (!synthStarted) toggleAudio();
+}, { passive: true });
+
 // ─── Animation Loop ───────────────────────────────────────────────────────────
 // requestAnimationFrame gives us ~60fps. Each frame we: update targets → run
 // physics → update colours → render. The MediaPipe callback runs independently
@@ -865,6 +958,49 @@ function animate() {
   updateTargets(time); // recompute where each particle wants to be this frame
   stepPhysics();       // move particles toward their targets via spring physics
   updateColors();      // lerp colour palette and write per-particle RGB
+
+  // Modulate audio filter and theremin based on hand movement / swipe energy
+  if (synthStarted && synthFilter && audioCtx.state === 'running') {
+    const swipeEnergy = Math.sqrt(swipeX * swipeX + swipeY * swipeY);
+    let filterTargetFreq = 1000;
+    
+    if (mode === 'scatter') filterTargetFreq = 2000;
+    else if (mode === 'implode') filterTargetFreq = 300;
+    
+    // Add swipe energy for dynamic brightness
+    filterTargetFreq += Math.min(swipeEnergy * 150, 2000);
+    
+    // Lerp filter frequency over time for smooth audio sweeps
+    synthFilter.frequency.setTargetAtTime(filterTargetFreq, audioCtx.currentTime, 0.4);
+    
+    if (handVisible) {
+      // Very slow, relaxing fade-in (creates a swelling, ethereal pad feeling)
+      thereminGain.gain.setTargetAtTime(0.35, audioCtx.currentTime, 1.0);
+      
+      // Control root pitch via Y-axis (reduced scaling to keep the pitch in a calming range)
+      const basePitch = Math.max(80, 160 + (handY * 6));
+      
+      // Use X-axis to pick the chord structure (I - V - vi - IV progression)
+      let multipliers;
+      if (handX < -15) {
+        multipliers = [1.0, 1.25, 1.5, 2.0]; // I (Major Triad: e.g. C, E, G, C)
+      } else if (handX < 0) {
+        multipliers = [1.5, 1.875, 2.25, 3.0]; // V (Major Triad: e.g. G, B, D, G)
+      } else if (handX < 15) {
+        multipliers = [1.666, 2.0, 2.5, 3.333]; // vi (Minor Triad: e.g. A, C, E, A)
+      } else {
+        multipliers = [1.333, 1.666, 2.0, 2.666]; // IV (Major Triad: e.g. F, A, C, F)
+      }
+      
+      // "Melt" the oscillators into the new chord (0.6 seconds glide creates beautiful smooth changes)
+      for (let i = 0; i < 4; i++) {
+        thereminOscs[i].frequency.setTargetAtTime(basePitch * multipliers[i], audioCtx.currentTime, 0.6);
+      }
+    } else {
+      // Very long 1.5s fade out tail when hand is removed to avoid any abrupt silence
+      thereminGain.gain.setTargetAtTime(0, audioCtx.currentTime, 1.5);
+    }
+  }
 
   renderer.render(scene, camera); // draw the scene
 }

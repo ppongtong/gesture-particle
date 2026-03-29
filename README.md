@@ -25,21 +25,13 @@ Move your hand around the frame and the entire formation follows.
 
 ## How to Run
 
-ES modules require HTTP — you cannot open `index.html` directly from the filesystem.
+Because the project fetches all dependencies directly from CDNs and uses no local imports, you can run it straight from your file system! **No local web server is required.**
 
-```bash
-# Clone the repo
-git clone https://github.com/ppongtong/gesture-particle.git
-cd gesture-particle
+1. Clone or download this repository.
+2. Double-click the `index.html` file to open it in your browser.
+3. Allow camera access when prompted.
 
-# Serve locally (Python 3)
-python3 -m http.server 8080
-
-# Or with Node
-npx serve .
-```
-
-Then open **http://localhost:8080** in Chrome or Edge and allow camera access when prompted.
+*(If you prefer, you can still serve it locally using `python3 -m http.server 8080` or `npx serve .`)*
 
 > **Browser support:** Chrome 89+, Edge 89+, Safari 16.4+. Requires a webcam and good lighting.
 
